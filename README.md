@@ -42,7 +42,10 @@ swift build -c release
 
 1. Launch TaskSplitter
 2. Click ⚙️ in the top-right
-3. Enter your Anthropic API key (`sk-ant-...`)
+3. Choose your AI provider:
+   - **Anthropic (Claude)** — fast and smart, needs API key
+   - **OpenAI (GPT)** — versatile, needs API key
+   - **Ollama (Local)** — free, runs on your Mac, no key needed
 4. Start splitting tasks
 
 ## Usage
@@ -60,11 +63,20 @@ swift build -c release
 - Recursive: split → split → split until tasks are trivial
 - History saved in `~/Library/Application Support/TaskSplitter/`
 
-## API Key
+## AI Providers
 
-TaskSplitter uses the Anthropic API (Claude). Get your key at [console.anthropic.com](https://console.anthropic.com).
+| Provider | Key needed | Cost | Speed |
+|----------|-----------|------|-------|
+| Anthropic (Claude) | Yes | Pay per use | Fast |
+| OpenAI (GPT) | Yes | Pay per use | Fast |
+| Ollama (Local) | No | Free | Depends on hardware |
 
-The key is stored locally in `~/Library/Application Support/TaskSplitter/api_key`. Never sent anywhere else.
+Get your keys:
+- Anthropic: [console.anthropic.com](https://console.anthropic.com)
+- OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- Ollama: [ollama.com](https://ollama.com) (install, then `ollama pull llama3.2`)
+
+All config stored locally in `~/Library/Application Support/TaskSplitter/`. Never sent anywhere else.
 
 ## License
 

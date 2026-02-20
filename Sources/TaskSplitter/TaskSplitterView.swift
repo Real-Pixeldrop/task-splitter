@@ -4,7 +4,6 @@ struct TaskSplitterView: View {
     @ObservedObject var taskManager: TaskManager
     @State private var newTask = ""
     @State private var showSettings = false
-    @State private var apiKeyInput = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,6 +15,13 @@ struct TaskSplitterView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                 Spacer()
+                // Provider badge
+                Text(taskManager.aiProvider.currentConfig.selectedProvider.rawValue)
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.15))
+                    .cornerRadius(4)
                 Button(action: { showSettings.toggle() }) {
                     Image(systemName: "gear")
                         .font(.title3)
@@ -27,7 +33,7 @@ struct TaskSplitterView: View {
             Divider()
 
             if showSettings {
-                settingsView
+                SettingsView(aiProvider: taskManager.aiProvider, showSettings: $showSettings)
             } else {
                 // Input
                 HStack {
@@ -35,16 +41,16 @@ struct TaskSplitterView: View {
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { addTask() }
                     Button("Split") { addTask() }
-                        .disabled(newTask.isEmpty)
+                        .disabled(newTask.isEmpty || !taskManager.aiProvider.isConfigured)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
-                if !taskManager.hasApiKey {
+                if !taskManager.aiProvider.isConfigured {
                     HStack {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(.orange)
-                        Text("Clé API manquante — clique ⚙️")
+                        Text("Configure ton IA — clique ⚙️")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -100,198 +106,217 @@ struct TaskSplitterView: View {
         .frame(width: 420, height: 520)
     }
 
-    var settingsView: some View {
-        VStack(spacing: 12) {
-            Text("Clé API Anthropic")
-                .font(.headline)
-            Text("Nécessaire pour découper les tâches avec l'IA")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            SecureField("sk-ant-...", text: $apiKeyInput)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Annuler") { showSettings = false }
-                Button("Sauvegarder") {
-                    taskManager.setApiKey(apiKeyInput)
-                    showSettings = false
-                }
-                .disabled(apiKeyInput.isEmpty)
-            }
-            Spacer()
-        }
-        .padding()
-    }
-
     @ViewBuilder
     func taskRow(_ task: TaskItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                // Indent based on depth
-                if task.depth > 0 {
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.3))
-                        .frame(width: 2)
-                        .padding(.leading, CGFloat(task.depth - 1) * 16)
-                }
+            singleTaskRow(task)
 
-                Button(action: { taskManager.toggleComplete(task.id) }) {
-                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(task.isCompleted ? .green : .secondary)
-                }
-                .buttonStyle(.plain)
-
-                Text(task.text)
-                    .strikethrough(task.isCompleted)
-                    .foregroundColor(task.isCompleted ? .secondary : .primary)
-                    .font(.system(size: max(13 - CGFloat(task.depth), 11)))
-                    .lineLimit(2)
-
-                Spacer()
-
-                if taskManager.isLoading && taskManager.loadingTaskId == task.id {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                } else if !task.isCompleted {
-                    Button(action: { taskManager.splitTask(task.id) }) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "scissors")
-                            Text("Split")
-                        }
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.15))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!taskManager.hasApiKey)
-                }
-
-                Button(action: { taskManager.removeTask(task.id) }) {
-                    Image(systemName: "xmark")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Subtasks rendered inline to avoid recursive opaque type
             if !task.subtasks.isEmpty {
                 ForEach(task.subtasks) { subtask in
-                    subtaskRow(subtask)
-                        .padding(.leading, 16)
+                    VStack(alignment: .leading, spacing: 2) {
+                        singleTaskRow(subtask)
+                            .padding(.leading, 16)
+
+                        if !subtask.subtasks.isEmpty {
+                            ForEach(subtask.subtasks) { sub2 in
+                                singleTaskRow(sub2)
+                                    .padding(.leading, 32)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    func subtaskRow(_ task: TaskItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
+    func singleTaskRow(_ task: TaskItem) -> some View {
+        HStack(spacing: 6) {
+            if task.depth > 0 {
                 Rectangle()
                     .fill(Color.accentColor.opacity(0.3))
                     .frame(width: 2)
-                    .padding(.leading, CGFloat(max(task.depth - 1, 0)) * 16)
-
-                Button(action: { taskManager.toggleComplete(task.id) }) {
-                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(task.isCompleted ? .green : .secondary)
-                }
-                .buttonStyle(.plain)
-
-                Text(task.text)
-                    .strikethrough(task.isCompleted)
-                    .foregroundColor(task.isCompleted ? .secondary : .primary)
-                    .font(.system(size: max(13 - CGFloat(task.depth), 11)))
-                    .lineLimit(2)
-
-                Spacer()
-
-                if taskManager.isLoading && taskManager.loadingTaskId == task.id {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                } else if !task.isCompleted {
-                    Button(action: { taskManager.splitTask(task.id) }) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "scissors")
-                            Text("Split")
-                        }
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.15))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!taskManager.hasApiKey)
-                }
-
-                Button(action: { taskManager.removeTask(task.id) }) {
-                    Image(systemName: "xmark")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
 
-            // Level 2 subtasks (max depth display)
-            if !task.subtasks.isEmpty {
-                ForEach(task.subtasks) { sub in
-                    HStack(spacing: 6) {
-                        Rectangle()
-                            .fill(Color.accentColor.opacity(0.2))
-                            .frame(width: 2)
-                            .padding(.leading, CGFloat(max(sub.depth - 1, 0)) * 16)
-
-                        Button(action: { taskManager.toggleComplete(sub.id) }) {
-                            Image(systemName: sub.isCompleted ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(sub.isCompleted ? .green : .secondary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Text(sub.text)
-                            .strikethrough(sub.isCompleted)
-                            .foregroundColor(sub.isCompleted ? .secondary : .primary)
-                            .font(.system(size: 11))
-                            .lineLimit(2)
-
-                        Spacer()
-
-                        if taskManager.isLoading && taskManager.loadingTaskId == sub.id {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                        } else if !sub.isCompleted {
-                            Button(action: { taskManager.splitTask(sub.id) }) {
-                                HStack(spacing: 2) {
-                                    Image(systemName: "scissors")
-                                    Text("Split")
-                                }
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.15))
-                                .cornerRadius(4)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!taskManager.hasApiKey)
-                        }
-                    }
-                    .padding(.leading, 16)
-                }
+            Button(action: { taskManager.toggleComplete(task.id) }) {
+                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(task.isCompleted ? .green : .secondary)
             }
+            .buttonStyle(.plain)
+
+            Text(task.text)
+                .strikethrough(task.isCompleted)
+                .foregroundColor(task.isCompleted ? .secondary : .primary)
+                .font(.system(size: max(13 - CGFloat(task.depth), 11)))
+                .lineLimit(2)
+
+            Spacer()
+
+            if taskManager.isLoading && taskManager.loadingTaskId == task.id {
+                ProgressView()
+                    .scaleEffect(0.6)
+            } else if !task.isCompleted {
+                Button(action: { taskManager.splitTask(task.id) }) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "scissors")
+                        Text("Split")
+                    }
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.15))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .disabled(!taskManager.aiProvider.isConfigured)
+            }
+
+            Button(action: { taskManager.removeTask(task.id) }) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
         }
     }
 
     func addTask() {
         guard !newTask.isEmpty else { return }
         taskManager.addTask(newTask)
-        if taskManager.hasApiKey {
-            // Auto-split the first time
+        if taskManager.aiProvider.isConfigured {
             if let firstTask = taskManager.tasks.first {
                 taskManager.splitTask(firstTask.id)
             }
         }
         newTask = ""
+    }
+}
+
+// MARK: - Settings View
+
+struct SettingsView: View {
+    let aiProvider: AIProvider
+    @Binding var showSettings: Bool
+
+    @State private var selectedProvider: AIProviderType
+    @State private var anthropicKey: String
+    @State private var openaiKey: String
+    @State private var ollamaModel: String
+    @State private var ollamaURL: String
+
+    init(aiProvider: AIProvider, showSettings: Binding<Bool>) {
+        self.aiProvider = aiProvider
+        self._showSettings = showSettings
+        let config = aiProvider.currentConfig
+        self._selectedProvider = State(initialValue: config.selectedProvider)
+        self._anthropicKey = State(initialValue: config.anthropicKey)
+        self._openaiKey = State(initialValue: config.openaiKey)
+        self._ollamaModel = State(initialValue: config.ollamaModel)
+        self._ollamaURL = State(initialValue: config.ollamaURL)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Choisis ton IA")
+                    .font(.headline)
+
+                // Provider cards
+                ForEach(AIProviderType.allCases, id: \.self) { provider in
+                    providerCard(provider)
+                }
+
+                // Config for selected provider
+                switch selectedProvider {
+                case .anthropic:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Clé API Anthropic")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        SecureField("sk-ant-...", text: $anthropicKey)
+                            .textFieldStyle(.roundedBorder)
+                        Link("Obtenir une clé →", destination: URL(string: "https://console.anthropic.com")!)
+                            .font(.caption)
+                    }
+
+                case .openai:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Clé API OpenAI")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        SecureField("sk-...", text: $openaiKey)
+                            .textFieldStyle(.roundedBorder)
+                        Link("Obtenir une clé →", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                            .font(.caption)
+                    }
+
+                case .ollama:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Modèle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextField("llama3.2", text: $ollamaModel)
+                            .textFieldStyle(.roundedBorder)
+                        Text("URL Ollama")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextField("http://localhost:11434", text: $ollamaURL)
+                            .textFieldStyle(.roundedBorder)
+                        Link("Installer Ollama →", destination: URL(string: "https://ollama.com")!)
+                            .font(.caption)
+                    }
+                }
+
+                // Buttons
+                HStack {
+                    Button("Annuler") { showSettings = false }
+                    Spacer()
+                    Button("Sauvegarder") {
+                        var config = AIProviderConfig()
+                        config.selectedProvider = selectedProvider
+                        config.anthropicKey = anthropicKey
+                        config.openaiKey = openaiKey
+                        config.ollamaModel = ollamaModel
+                        config.ollamaURL = ollamaURL
+                        aiProvider.currentConfig = config
+                        showSettings = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+        }
+    }
+
+    func providerCard(_ provider: AIProviderType) -> some View {
+        Button(action: { selectedProvider = provider }) {
+            HStack {
+                Image(systemName: provider.icon)
+                    .font(.title3)
+                    .frame(width: 28)
+                VStack(alignment: .leading) {
+                    Text(provider.rawValue)
+                        .font(.system(size: 13, weight: .medium))
+                    Text(provider.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if selectedProvider == provider {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(selectedProvider == provider ? Color.accentColor.opacity(0.1) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selectedProvider == provider ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }

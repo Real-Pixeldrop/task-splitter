@@ -20,7 +20,7 @@ class TaskManager: ObservableObject {
     @Published var tasks: [TaskItem] = []
     @Published var isLoading = false
     @Published var loadingTaskId: UUID?
-    private var apiKey: String = ""
+    let aiProvider = AIProvider()
 
     private let storageFile: URL
 
@@ -29,15 +29,6 @@ class TaskManager: ObservableObject {
         let appDir = appSupport.appendingPathComponent("TaskSplitter")
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         storageFile = appDir.appendingPathComponent("tasks.json")
-
-        // Load API key from file or env
-        let keyFile = appDir.appendingPathComponent("api_key")
-        if let key = try? String(contentsOf: keyFile, encoding: .utf8) {
-            apiKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] {
-            apiKey = key
-        }
-
         loadTasks()
     }
 
@@ -48,8 +39,15 @@ class TaskManager: ObservableObject {
     }
 
     func removeTask(_ id: UUID) {
-        tasks.removeAll { $0.id == id }
+        removeTaskIn(list: &tasks, id: id)
         saveTasks()
+    }
+
+    private func removeTaskIn(list: inout [TaskItem], id: UUID) {
+        list.removeAll { $0.id == id }
+        for i in list.indices {
+            removeTaskIn(list: &list[i].subtasks, id: id)
+        }
     }
 
     func toggleComplete(_ id: UUID) {
@@ -68,11 +66,10 @@ class TaskManager: ObservableObject {
     }
 
     func splitTask(_ id: UUID) {
-        guard !apiKey.isEmpty else { return }
+        guard aiProvider.isConfigured else { return }
         isLoading = true
         loadingTaskId = id
 
-        // Find the task text and depth
         guard let (text, depth) = findTask(in: tasks, id: id) else {
             isLoading = false
             loadingTaskId = nil
@@ -86,11 +83,11 @@ class TaskManager: ObservableObject {
         Chaque sous-tache doit commencer par un verbe d'action.
         """
 
-        callClaude(prompt: prompt) { [weak self] result in
+        aiProvider.splitTask(prompt: prompt) { [weak self] result in
             DispatchQueue.main.async {
-                if let subtasks = result {
+                if let text = result {
                     let newDepth = depth + 1
-                    let items = subtasks
+                    let items = text
                         .components(separatedBy: "\n")
                         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .filter { !$0.isEmpty }
@@ -127,41 +124,6 @@ class TaskManager: ObservableObject {
         }
     }
 
-    private func callClaude(prompt: String, completion: @escaping (String?) -> Void) {
-        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
-            completion(nil)
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-
-        let body: [String: Any] = [
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 500,
-            "messages": [
-                ["role": "user", "content": prompt]
-            ]
-        ]
-
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { data, _, error in
-            guard let data = data, error == nil,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let content = json["content"] as? [[String: Any]],
-                  let first = content.first,
-                  let text = first["text"] as? String else {
-                completion(nil)
-                return
-            }
-            completion(text.isEmpty ? nil : text)
-        }.resume()
-    }
-
     func saveTasks() {
         if let data = try? JSONEncoder().encode(tasks) {
             try? data.write(to: storageFile)
@@ -184,14 +146,5 @@ class TaskManager: ObservableObject {
         for i in list.indices {
             clearCompletedIn(list: &list[i].subtasks)
         }
-    }
-
-    var hasApiKey: Bool { !apiKey.isEmpty }
-
-    func setApiKey(_ key: String) {
-        apiKey = key
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let keyFile = appSupport.appendingPathComponent("TaskSplitter/api_key")
-        try? key.write(to: keyFile, atomically: true, encoding: .utf8)
     }
 }
