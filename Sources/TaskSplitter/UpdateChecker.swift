@@ -3,7 +3,7 @@ import AppKit
 
 class UpdateChecker {
     static let shared = UpdateChecker()
-    private let currentVersion = "1.2.0"
+    private let currentVersion = "1.3.0"
     private let repoOwner = "Real-Pixeldrop"
     private let repoName = "task-splitter"
     private let lastCheckKey = "lastUpdateCheck"

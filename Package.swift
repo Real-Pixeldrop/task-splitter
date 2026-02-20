@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "TaskSplitter",
-            path: "Sources/TaskSplitter"
+            path: "Sources/TaskSplitter",
+            resources: [
+                .copy("Resources")
+            ]
         )
     ]
 )
